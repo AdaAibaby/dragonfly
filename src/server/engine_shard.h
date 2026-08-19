@@ -31,6 +31,10 @@ class EngineShard {
     uint64_t defrag_skipped_mem_under_threshold = 0;
     uint64_t defrag_skipped_within_check_interval = 0;
     uint64_t defrag_skipped_not_enough_fragmentation = 0;
+    // AsyncDeleter (db_slice.cc) uses the same "return kOnIdleMaxLevel until done" pattern as
+    // defrag, with no duty-cycle cap of its own - this counter is the only current visibility
+    // into whether it's actually running, since it has no other tracked stats.
+    uint64_t async_delete_task_invocation_total = 0;
     uint64_t poll_execution_total = 0;
 
     // number of optimistic executions - that were run as part of the scheduling.
@@ -251,12 +255,27 @@ class EngineShard {
     time_t last_check_time = 0;
     float page_utilization_threshold = 0.8;
 
+    // Duty-cycle backoff: bounds how much of this shard's proactor time a sustained defrag
+    // pass can consume. Without this, DefragTask() keeps requesting ProactorBase::kOnIdleMaxLevel
+    // on every call for as long as a pass is incomplete, which makes the proactor skip its
+    // blocking io_uring wait entirely (see ProactorBase::RunOnIdleTasks) - i.e. it spins,
+    // uncapped, until the whole pass finishes. consecutive_burst_cycles accumulates the *real*
+    // CycleClock cost of each DoDefrag() call (PageUsage::UsedQuotaCycles(), not an invocation
+    // count) since the current burst started - once it crosses mem_defrag_max_burst_duration_us,
+    // we force a cooldown. Using measured time rather than a call count is self-calibrating: the
+    // achievable duty cycle is exactly
+    // mem_defrag_max_burst_duration_us / (that + mem_defrag_backoff_duration_us),
+    // regardless of how expensive any individual call actually turns out to be.
+    uint64_t consecutive_burst_cycles = 0;
+    uint64_t cooldown_until_cycles = 0;  // CycleClock ticks; 0 means "not cooling down"
+
     enum class SkipReason : uint8_t {
       MemoryTooLow,
       MemoryBelowThreshold,
       CheckWithinInterval,
       NotEnoughFragmentation,
       CheckInProgress,
+      CoolingDown,
       NotSkipped,
     };
 
