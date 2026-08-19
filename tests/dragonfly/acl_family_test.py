@@ -11,6 +11,7 @@ import redis
 from redis import asyncio as aioredis
 
 from . import dfly_args
+from .utility import assert_eventually
 
 
 @pytest.mark.asyncio
@@ -258,7 +259,7 @@ async def test_acl_deluser(df_server):
 
 
 script = """
-for i = 1, 10000 do
+for i = 1, 20000 do
   redis.call('SET', 'key', i)
   redis.call('SET', 'key1', i)
   redis.call('SET', 'key2', i)
@@ -268,7 +269,10 @@ end
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip("Flaky on CI, needs investigation")
+@pytest.mark.debug_only
+@dfly_args(
+    {"proactor_threads": 2, "num_shards": 1, "conn_io_threads": 1, "conn_io_thread_start": 1}
+)
 async def test_acl_del_user_while_running_lua_script(df_server):
     client = aioredis.Redis(port=df_server.port)
     await client.execute_command("ACL SETUSER kostas ON >kk +@string +@scripting ~*")
@@ -287,14 +291,23 @@ async def test_acl_del_user_while_running_lua_script(df_server):
     with pytest.raises(redis.exceptions.ConnectionError):
         await eval_task
 
-    # The script should have run to completion on the server side.
-    for i in range(1, 4):
-        res = await admin_client.get(f"key{i}")
-        assert res == "10000"
+    # The script keeps running to completion on the server side after the connection is
+    # evicted, but there is no synchronization between "client observes the connection
+    # closing" and "script finishes its last iterations", so retry instead of asserting once.
+    @assert_eventually(timeout=10)
+    async def check_keys_written():
+        for i in range(1, 4):
+            res = await admin_client.get(f"key{i}")
+            assert res == "20000"
+
+    await check_keys_written()
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip("Check TODO in the body below")
+@pytest.mark.debug_only
+@dfly_args(
+    {"proactor_threads": 2, "num_shards": 1, "conn_io_threads": 1, "conn_io_thread_start": 1}
+)
 async def test_acl_with_long_running_script(df_server):
     client = aioredis.Redis(port=df_server.port)
     await client.execute_command("ACL SETUSER roman ON >yoman +@string +@scripting ~*")
@@ -306,18 +319,16 @@ async def test_acl_with_long_running_script(df_server):
     # Let the script start
     await asyncio.sleep(0.1)
 
-    # Change permissions while the script is running
+    # Change permissions while the script is running. The script was authorized once when it
+    # started and keeps running against that snapshot, so this must not affect it.
     await admin_client.execute_command("ACL SETUSER roman -@string -@scripting")
 
     # The script should continue and finish successfully
-    # TODO(fix): acl context should be immutable while the script is running. This requires
-    # a "dummy" context so we can allow acl commands to run in parallel but we don't use stubs
-    # anymore. Figure out a good solution for this.
     await eval_task
 
     for i in range(1, 4):
         res = await admin_client.get(f"key{i}")
-        assert res == "10000"
+        assert res == "20000"
 
 
 def create_temp_file(content, tmp_dir):
