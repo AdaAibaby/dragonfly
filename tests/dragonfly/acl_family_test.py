@@ -259,7 +259,7 @@ async def test_acl_deluser(df_server):
 
 
 script = """
-for i = 1, 20000 do
+for i = 1, 280000 do
   redis.call('SET', 'key', i)
   redis.call('SET', 'key1', i)
   redis.call('SET', 'key2', i)
@@ -294,11 +294,11 @@ async def test_acl_del_user_while_running_lua_script(df_server):
     # The script keeps running to completion on the server side after the connection is
     # evicted, but there is no synchronization between "client observes the connection
     # closing" and "script finishes its last iterations", so retry instead of asserting once.
-    @assert_eventually(timeout=10)
+    @assert_eventually(timeout=20)
     async def check_keys_written():
         for i in range(1, 4):
             res = await admin_client.get(f"key{i}")
-            assert res == "20000"
+            assert res == "280000"
 
     await check_keys_written()
 
@@ -328,7 +328,7 @@ async def test_acl_with_long_running_script(df_server):
 
     for i in range(1, 4):
         res = await admin_client.get(f"key{i}")
-        assert res == "20000"
+        assert res == "280000"
 
 
 def create_temp_file(content, tmp_dir):
