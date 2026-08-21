@@ -280,12 +280,15 @@ async def test_acl_del_user_while_running_lua_script(df_server):
     admin_client = aioredis.Redis(port=df_server.port, decode_responses=True)
 
     eval_task = asyncio.create_task(client.eval(script, 4, "key", "key1", "key2", "key3"))
+    logging.warning(f"DBG eval_task created at {time.time()}")
 
     # Let the script start
     await asyncio.sleep(0.1)
 
     # Delete the user while the script is running
+    logging.warning(f"DBG sending ACL DELUSER at {time.time()}")
     await admin_client.execute_command("ACL DELUSER kostas")
+    logging.warning(f"DBG ACL DELUSER returned at {time.time()}")
 
     # We expect the connection to be closed, so eval task should raise ConnectionError
     with pytest.raises(redis.exceptions.ConnectionError):

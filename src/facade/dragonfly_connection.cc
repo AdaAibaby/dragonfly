@@ -1583,6 +1583,8 @@ Connection::ParserStatus Connection::ParseRedis(base::IoBuf& io_buf, uint32_t ma
   RespSrvParser::Result result = RespSrvParser::OK;
 
   auto dispatch_sync = [this] {
+    LOG(WARNING) << "DBG DispatchSingle sync dispatch " << CONN_ID
+                 << "tid=" << ProactorBase::me()->GetPoolIndex() << " cmd=" << parsed_cmd_->Front();
     service_->DispatchCommand(ParsedArgs{*parsed_cmd_}, parsed_cmd_,
                               facade::AsyncPreference::ONLY_SYNC);
   };
