@@ -1162,6 +1162,45 @@ TEST_F(OAHSetTest, GetRandomMemberSingle) {
   EXPECT_EQ(KeyOf(*it), "only"sv);
 }
 
+TEST_F(OAHSetTest, GetRandomMemberSelectsAllVectorEntries) {
+  EXPECT_TRUE(ss_->Add("vector_member_0"sv));
+  const size_t physical_slots = ss_->Capacity();
+  ASSERT_GT(OAHSet::kOverloadFactor, 1u);
+
+  // Exceed the number of physical slots without reaching the growth threshold, guaranteeing at
+  // least one vector-backed bucket.
+  vector<string> members = {"vector_member_0"};
+  for (size_t i = 1; i <= physical_slots; ++i) {
+    members.push_back(absl::StrCat("vector_member_", i));
+    EXPECT_TRUE(ss_->Add(members.back()));
+  }
+
+  vector<vector<string>> buckets(ss_->Capacity());
+  for (auto it = ss_->begin(); it != ss_->end(); ++it)
+    buckets[it.bucket_id()].push_back(KeyOf(*it));
+
+  auto vector_bucket =
+      find_if(buckets.begin(), buckets.end(), [](const auto& bucket) { return bucket.size() > 1; });
+  ASSERT_NE(vector_bucket, buckets.end());
+  const unordered_set<string> expected(vector_bucket->begin(), vector_bucket->end());
+
+  // Leave only the vector bucket populated, making every random lookup select from it.
+  for (const string& member : members) {
+    if (!expected.contains(member)) {
+      EXPECT_TRUE(ss_->Erase(member));
+    }
+  }
+  ASSERT_EQ(ss_->UpperBoundSize(), expected.size());
+
+  unordered_set<string> seen;
+  for (size_t i = 0; i < 1000 && seen.size() < expected.size(); ++i) {
+    auto it = ss_->GetRandomMember();
+    ASSERT_NE(it, ss_->end());
+    seen.insert(KeyOf(*it));
+  }
+  EXPECT_EQ(seen, expected);
+}
+
 TEST_F(OAHSetTest, GetRandomMemberSkipsExpired) {
   EXPECT_TRUE(ss_->Add("alive"sv, 100));
   EXPECT_TRUE(ss_->Add("dead"sv, 1));
