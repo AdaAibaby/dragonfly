@@ -197,6 +197,7 @@ void AclFamily::EvictOpenConnectionsOnAllProactorsWithRegistry(
 }
 
 void AclFamily::DelUser(CmdArgParser parser, CommandContext* cmd_cntx) {
+  LOG(WARNING) << "DBG DelUser dispatched on tid=" << util::ProactorBase::me()->GetPoolIndex();
   auto& registry = *registry_;
   absl::flat_hash_set<string_view> users;
 
@@ -959,6 +960,7 @@ std::string AclDbToString(size_t db) {
 template <typename P>
 void TraverseEvictImpl(P predicate, facade::Listener* main_listener, util::ProactorPool* pool) {
   auto close_cb = [&](unsigned idx, util::ProactorBase* p) {
+    LOG(WARNING) << "DBG TraverseEvictImpl close_cb starting on tid=" << p->GetPoolIndex();
     std::vector<facade::Connection::WeakRef> connections;
     auto traverse_cb = [&](unsigned id, util::Connection* conn) {
       auto connection = static_cast<facade::Connection*>(conn);
@@ -969,17 +971,26 @@ void TraverseEvictImpl(P predicate, facade::Listener* main_listener, util::Proac
     };
 
     main_listener->TraverseConnectionsOnThread(traverse_cb, UINT32_MAX, nullptr);
+    LOG(WARNING) << "DBG TraverseEvictImpl tid=" << p->GetPoolIndex()
+                 << " matched connections=" << connections.size();
 
     for (auto& tcon : connections) {
       facade::Connection* conn = tcon.Get();
       if (conn && conn->socket()->proactor()->GetPoolIndex() == p->GetPoolIndex()) {
         // preemptive for TlsSocket
+        LOG(WARNING) << "DBG TraverseEvictImpl tid=" << p->GetPoolIndex()
+                     << " calling ShutdownSelfBlocking";
         conn->ShutdownSelfBlocking();
+        LOG(WARNING) << "DBG TraverseEvictImpl tid=" << p->GetPoolIndex()
+                     << " ShutdownSelfBlocking returned";
       }
     }
+    LOG(WARNING) << "DBG TraverseEvictImpl close_cb finished on tid=" << p->GetPoolIndex();
   };
 
+  LOG(WARNING) << "DBG TraverseEvictImpl: dispatching AwaitFiberOnAll";
   pool->AwaitFiberOnAll(close_cb);
+  LOG(WARNING) << "DBG TraverseEvictImpl: AwaitFiberOnAll returned";
 }
 
 }  // namespace

@@ -2411,7 +2411,11 @@ void Service::EvalInternal(const EvalArgs& eval_args, Interpreter* interpreter, 
           new Transaction{tx, real_sid, slot_checker.GetUniqueSlotId()};
       conn_cntx->transaction = stub_tx.get();
 
+      LOG(WARNING) << "DBG script hop starting on tid=" << ProactorBase::me()->GetPoolIndex()
+                   << " sha=" << eval_args.sha;
       result = interpreter->RunFunction(eval_args.sha, &error);
+      LOG(WARNING) << "DBG script hop finished on tid=" << ProactorBase::me()->GetPoolIndex()
+                   << " sha=" << eval_args.sha;
 
       conn_cntx->transaction = tx;
       return OpStatus::OK;
@@ -2436,7 +2440,11 @@ void Service::EvalInternal(const EvalArgs& eval_args, Interpreter* interpreter, 
         return cmd_cntx->SendError(err);
       }
     } else {
+      LOG(WARNING) << "DBG EvalInternal calling StartMulti tid="
+                   << ProactorBase::me()->GetPoolIndex();
       scheduled = StartMulti(conn_cntx, script_mode, tx_keys);
+      LOG(WARNING) << "DBG EvalInternal StartMulti returned scheduled=" << scheduled
+                   << " unique_shard_cnt=" << tx->GetUniqueShardCnt();
       sinfo->stats.tx_shards = tx->GetUniqueShardCnt();
     }
 
@@ -2444,7 +2452,11 @@ void Service::EvalInternal(const EvalArgs& eval_args, Interpreter* interpreter, 
     interpreter->SetRedisFunc(
         [cmd_cntx, this](Interpreter::CallArgs args) { CallFromScript(args, cmd_cntx); });
 
+    LOG(WARNING) << "DBG EvalInternal RunFunction starting tid="
+                 << ProactorBase::me()->GetPoolIndex();
     result = interpreter->RunFunction(eval_args.sha, &error);
+    LOG(WARNING) << "DBG EvalInternal RunFunction finished tid="
+                 << ProactorBase::me()->GetPoolIndex() << " result=" << result;
 
     if (auto err = FlushEvalAsyncCmds(conn_cntx, true); err) {
       auto err_ref = CapturingReplyBuilder::TryExtractError(*err);
